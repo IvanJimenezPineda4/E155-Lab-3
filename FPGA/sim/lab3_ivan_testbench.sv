@@ -5,54 +5,73 @@
 
 `timescale 1ns/1ps
 
-module lab3_ivan_testbench();
+module lab3_ivan_testbbench();
 
     logic reset;
-    logic [3:0] col;
+    logic [3:0] col; // Active low
     logic [6:0] seg;
     logic [1:0] anode;
     logic [3:0] row;
 
     lab3_ivan dut (.reset(reset), .col(col), .seg(seg), .anode(anode), .row(row));
 
+    logic sim_clk = 0;
+    always #20.8 sim_clk = ~sim_clk; // 24MHz
+    
+    initial begin
+        force dut.clk = sim_clk;
+    end
+
     initial begin
         reset = 0;
-        col = 4'b1111; // Columns idle HIGH
-        #1000;
+        col = 4'b1111; // Pullups hold unpressed columns high
+        #100;
         reset = 1;
         
-        // Wait for system to stabilize and FSM to begin scanning
-        #5000;
-
-        // press key '6' (Row 1, Col 2). 
-        // Wait until row[1] goes LOW (active), then pull col[2] LOW
-        wait (row == 4'b1101);
-        col = 4'b1011; 
+        // Wait for system to initialize
+        #1_000_000; 
+    
+        // Simulate pressing '5' (Row 1, Col 1)
+      
+        $display("Simulating bouncy press of button '5'...");
+        #13.7;                   // Asynchronous offset from clock edge
+        col = 4'b1101; #150_000; // Bounce closed
+        col = 4'b1111; #200_000; // Bounce open
+        col = 4'b1101; #100_000; // Bounce closed
+        col = 4'b1111; #50_000;  // Bounce open
+        col = 4'b1101;           // hold
         
-        $display("Button '6' pressed at %0t", $time);
+        // Wait long enough for the 183Hz FSM (r to p to s to e to w)
+        // 5 ticks 
+        #30_000_000; 
         
-        // Wait 25ms to clear the 500,000 cycle FSM debounce delay
-        #25_000_000; 
-
-        // Release the button
+        // Release button
         col = 4'b1111;
-        $display("Button '6' released at %0t", $time);
+        #10_000_000; // Wait for FSM to exit wait state
+        
+        // Check that '5' made it into the new digit register
+        assert(dut.digit_new == 4'h5) else $error("Digit 5 failed to register");
 
-        // Wait another 25ms to clear the release debounce delay
-        #25_000_000;
+        // Simulate pressing 'A' (Row 0, Col 3)
+        $display("Simulating bouncy press of button 'A");
+        #13.7;                   // Asynchronous offset
+        col = 4'b0111; #150_000; // Bounce closed
+        col = 4'b1111; #200_000; // Bounce open
+        col = 4'b0111; #100_000; // Bounce closed
+        col = 4'b1111; #50_000;  // Bounce open
+        col = 4'b0111;           // hold
+        
+        #30_000_000; 
+        
+        // Release button
+        col = 4'b1111;
+        #10_000_000; 
+        
+        // Check shift register behavior
+        assert(dut.digit_new == 4'hA) else $error("Digit A failed to register as new");
+        assert(dut.digit_old == 4'h5) else $error("Digit 5 failed to shift to old");
 
-        // press key 'A' (Row 0, Col 3).
-        wait (row == 4'b1110);
-        col = 4'b0111;
-
-        $display("Button 'A' pressed at %0t", $time);
-
-        #25_000_000;
-        col = 4'b1111; // Release
-
-        #25_000_000;
-
-        $display("Top level tests completed.");
-        $stop;
+        $display("Top Level System Tests Completed Successfully.");
+        $finish;
     end
 endmodule

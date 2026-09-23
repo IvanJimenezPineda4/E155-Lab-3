@@ -2,43 +2,44 @@
 // Ivan Jimenez Pineda, ijimenezpineda@g.hmc.edu
 // 9/20/2026
 // Testbench for synchronizer.sv
-
 `timescale 1ns/1ps
 
 module synchronizer_testbench();
 
-    logic clk;
-    logic reset;
+    logic clk, reset;
     logic [3:0] async_in;
     logic [3:0] sync_out;
 
     synchronizer dut (.clk(clk), .reset(reset), .async_in(async_in), .sync_out(sync_out));
 
-    // 24MHz clock
-    always begin
-        clk = 0; #21;
-        clk = 1; #21;
-    end
+    // 24MHz Clock Generation
+    always #20.8 clk = ~clk;
 
     initial begin
+        $display("Starting Synchronizer");
+        clk = 0;
         reset = 0;
-        async_in = 4'b1111; // Default pulled HIGH
-        #50;
+        async_in = 4'b1111;
         
-        reset = 1; #20;
-
-        // Apply asynchronous inputs off the clock edge
-        async_in = 4'b1010; #12; 
-        async_in = 4'b0101; #30; 
-        
-        // Wait to observe the two-clock cycle propagation delay
         #100;
+        reset = 1;
         
-        async_in = 4'b1110; #45;
-        async_in = 4'b1111; 
+        // Assert async input exactly on clock edge
+        @(posedge clk);
+        async_in = 4'b1110; 
+        
+        // Verify takes exactly 2 clock cycles to propagate
+        @(posedge clk); #1; assert(sync_out == 4'b1111) else $error("Failed Flop 1 isolation");
+        @(posedge clk); #1; assert(sync_out == 4'b1110) else $error("Failed Flop 2 sync");
+        
+        // Assert async input arriving asynchronously between clocks
+        #13.5; 
+        async_in = 4'b1101;
+        
+        @(posedge clk);
+        @(posedge clk); #1; assert(sync_out == 4'b1101) else $error("Failed Async timing offset");
 
-        #100;
-        $display("Synchronizer tests completed.");
-        $stop;
+        $display("Synchronizer Tests Completed.");
+        $finish;
     end
 endmodule

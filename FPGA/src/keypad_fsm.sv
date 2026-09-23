@@ -5,23 +5,18 @@
 
 module keypad_fsm (input logic clk,
                    input logic reset,
-                   input logic tick,               // 183Hz enable
+                   input logic tick,               // 240Hz enable
                    input logic [3:0] col,        
                    output logic [3:0] row,         // active low output to keypad
                    output logic [3:0] active_row,  // active high output to decoder
-                   output logic enable);            // Pulse for a valid key press
+                   output logic enable);             // Pulse for a valid key press
 
-    // 28 states total
     typedef enum logic [4:0] {
         r0, r1, r2, r3,  // row scan states
         p0, p1, p2, p3,  // press detect states
         s0, s1, s2, s3,  // sync states
         e0, e1, e2, e3,  // enable states
-        w0, w1, w2, w3,  // wait for release states
-        w0_d1, w0_d2, w0_d3, // release debounce row 0
-        w1_d1, w1_d2, w1_d3, // release debounce row 1
-        w2_d1, w2_d2, w2_d3, // release debounce row 2
-        w3_d1, w3_d2, w3_d3  // release debounce row 3
+        w0, w1, w2, w3   // wait for release states
     } state_t;
     
     state_t state, next_state;
@@ -58,7 +53,7 @@ module keypad_fsm (input logic clk,
         end
     end
     
-    // Next-state logic with Release Debounce
+    // Next-state logic
     always_comb begin
         case(state)
             // Scan Row 0
@@ -66,40 +61,28 @@ module keypad_fsm (input logic clk,
             p0: next_state = s0;
             s0: next_state = e0;
             e0: next_state = w0;
-            w0:    if (oneCol) next_state = w0; else next_state = w0_d1;
-            w0_d1: if (oneCol) next_state = w0; else next_state = w0_d2;
-            w0_d2: if (oneCol) next_state = w0; else next_state = w0_d3;
-            w0_d3: if (oneCol) next_state = w0; else next_state = r0;
+            w0: if (oneCol) next_state = w0; else next_state = r0;
                 
             // Scan Row 1
             r1: if (press) next_state = p1; else next_state = r2;
             p1: next_state = s1;
             s1: next_state = e1;
             e1: next_state = w1;
-            w1:    if (oneCol) next_state = w1; else next_state = w1_d1;
-            w1_d1: if (oneCol) next_state = w1; else next_state = w1_d2;
-            w1_d2: if (oneCol) next_state = w1; else next_state = w1_d3;
-            w1_d3: if (oneCol) next_state = w1; else next_state = r1;
+            w1: if (oneCol) next_state = w1; else next_state = r1;
                 
             // Scan Row 2
             r2: if (press) next_state = p2; else next_state = r3;
             p2: next_state = s2;
             s2: next_state = e2;
             e2: next_state = w2;
-            w2:    if (oneCol) next_state = w2; else next_state = w2_d1;
-            w2_d1: if (oneCol) next_state = w2; else next_state = w2_d2;
-            w2_d2: if (oneCol) next_state = w2; else next_state = w2_d3;
-            w2_d3: if (oneCol) next_state = w2; else next_state = r2;
+            w2: if (oneCol) next_state = w2; else next_state = r2;
     
             // Scan Row 3
             r3: if (press) next_state = p3; else next_state = r0;
             p3: next_state = s3;
             s3: next_state = e3;
             e3: next_state = w3;
-            w3:    if (oneCol) next_state = w3; else next_state = w3_d1;
-            w3_d1: if (oneCol) next_state = w3; else next_state = w3_d2;
-            w3_d2: if (oneCol) next_state = w3; else next_state = w3_d3;
-            w3_d3: if (oneCol) next_state = w3; else next_state = r3;
+            w3: if (oneCol) next_state = w3; else next_state = r3;
             
             default: next_state = r0;
         endcase
@@ -110,21 +93,21 @@ module keypad_fsm (input logic clk,
         row = 4'b1111;
         active_row = 4'b0000;
 
-        if (state == r0 || state == p0 || state == s0 || state == e0 || state == w0 || state == w0_d1 || state == w0_d2 || state == w0_d3) begin
+        if (state == r0 || state == p0 || state == s0 || state == e0 || state == w0) begin
             row = 4'b1110; 
             active_row = 4'b0001;
-        end else if (state == r1 || state == p1 || state == s1 || state == e1 || state == w1 || state == w1_d1 || state == w1_d2 || state == w1_d3) begin
+        end else if (state == r1 || state == p1 || state == s1 || state == e1 || state == w1) begin
             row = 4'b1101; 
             active_row = 4'b0010;
-        end else if (state == r2 || state == p2 || state == s2 || state == e2 || state == w2 || state == w2_d1 || state == w2_d2 || state == w2_d3) begin
+        end else if (state == r2 || state == p2 || state == s2 || state == e2 || state == w2) begin
             row = 4'b1011; 
             active_row = 4'b0100;
-        end else if (state == r3 || state == p3 || state == s3 || state == e3 || state == w3 || state == w3_d1 || state == w3_d2 || state == w3_d3) begin
+        end else if (state == r3 || state == p3 || state == s3 || state == e3 || state == w3) begin
             row = 4'b0111; 
             active_row = 4'b1000;
         end
     end
     
-    assign enable = (state == e0) | (state == e1) | (state == e2) | (state == e3);
+    assign enable = (state == e0) | (state == e1) | (state == e2) | (state == e3); // enable active in these states
     
 endmodule

@@ -10,8 +10,11 @@ module keypad_fsm (input logic clk,
                    output logic [3:0] active_row, 
                    output logic enable);          // pulse for a valid key press
 
-    // 19-bit counter yields ~524,288 cycles at 24MHz ≈ 21.8 ms debounce delay
+    // 19-bit counter yields 524,288 cycles at 24MHz = 21.8 ms debounce delay
     parameter DEBOUNCE_TIME = 19'd500_000; 
+
+    // 12-bit counter yields 2,400 cycles at 24MHz = 100 microsec scan delay
+    parameter SCAN_DELAY = 12'd2400;
 
     typedef enum logic [2:0] {SCAN_STATE, 
                               DEBOUNCE_PRESS_STATE, 
@@ -23,24 +26,38 @@ module keypad_fsm (input logic clk,
     
     logic [1:0] scan_row; // current row of the scanner
     logic [18:0] debounce_count;
+    logic [11:0] scan_timer; // slow down scanning
 
     always_ff @(posedge clk) begin
         if (~reset) begin
             state <= SCAN_STATE;
             scan_row <= 2'b00;
             debounce_count <= 19'd0;
+            scan_timer <= 12'd0;
         end else begin
             state <= next_state;
             case (state)  // FSM logic
                 SCAN_STATE: begin
                     debounce_count <= 19'd0;
                     // Rotate the scanned row continuously if no key is pressed
-                    if (col == 4'b0000) scan_row <= scan_row + 1'b1; 
+                    if (col == 4'b0000) begin
+                        if (scan_timer >= SCAN_DELAY) begin
+                            scan_row <= scan_row + 1'b1;
+                            scan_timer <= 12'd0;
+                        end else begin
+                            scan_timer <= scan_timer + 1'b1;
+                        end
+                    end else begin
+                        scan_timer <= 12'd0; // reset timer if a press is detected
+                    end
                 end
                 DEBOUNCE_PRESS_STATE, DEBOUNCE_RELEASE_STATE: begin
                     debounce_count <= debounce_count + 1'b1; // Increment debounce timer
                 end
-                default: debounce_count <= 19'd0;
+                default: begin
+                    debounce_count <= 19'd0;
+                    scan_timer <= 12'd0;
+                end
             endcase
         end
     end

@@ -5,102 +5,109 @@
 
 module keypad_fsm (input logic clk,
                    input logic reset,
-                   input logic [3:0] col,       
-                   output logic [3:0] row,      
-                   output logic [3:0] active_row, 
-                   output logic enable);          // pulse for a valid key press
+                   input logic tick,               // 240Hz enable
+                   input logic [3:0] col,        
+                   output logic [3:0] row,         // active low output to keypad
+                   output logic [3:0] active_row,  // active high output to decoder
+                   output logic enable);             // Pulse for a valid key press
 
-    // 19-bit counter yields 524,288 cycles at 24MHz = 21.8 ms debounce delay
-    parameter DEBOUNCE_TIME = 19'd500_000; 
-
-    // 12-bit counter yields 2,400 cycles at 24MHz = 100 microsec scan delay
-    parameter SCAN_DELAY = 12'd2400;
-
-    typedef enum logic [2:0] {SCAN_STATE, 
-                              DEBOUNCE_PRESS_STATE, 
-                              TRIGGER_STATE, 
-                              HOLD_STATE, 
-                              DEBOUNCE_RELEASE_STATE} state_t;
+    typedef enum logic [4:0] {
+        r0, r1, r2, r3,  // row scan states
+        p0, p1, p2, p3,  // press detect states
+        s0, s1, s2, s3,  // sync states
+        e0, e1, e2, e3,  // enable states
+        w0, w1, w2, w3   // wait for release states
+    } state_t;
     
     state_t state, next_state;
     
-    logic [1:0] scan_row; // current row of the scanner
-    logic [18:0] debounce_count;
-    logic [11:0] scan_timer; // slow down scanning
-
-    always_ff @(posedge clk) begin
-        if (~reset) begin
-            state <= SCAN_STATE;
-            scan_row <= 2'b00;
-            debounce_count <= 19'd0;
-            scan_timer <= 12'd0;
-        end else begin
-            state <= next_state;
-            case (state)  // FSM logic
-                SCAN_STATE: begin
-                    debounce_count <= 19'd0;
-                    // Rotate the scanned row continuously if no key is pressed
-                    if (col == 4'b0000) begin
-                        if (scan_timer >= SCAN_DELAY) begin
-                            scan_row <= scan_row + 1'b1;
-                            scan_timer <= 12'd0;
-                        end else begin
-                            scan_timer <= scan_timer + 1'b1;
-                        end
-                    end else begin
-                        scan_timer <= 12'd0; // reset timer if a press is detected
-                    end
-                end
-                DEBOUNCE_PRESS_STATE, DEBOUNCE_RELEASE_STATE: begin
-                    debounce_count <= debounce_count + 1'b1; // Increment debounce timer
-                end
-                default: begin
-                    debounce_count <= 19'd0;
-                    scan_timer <= 12'd0;
-                end
-            endcase
-        end
-    end
-
-    // FSM next state and output logic
+    // true only if exactly one key is pressed
+    logic press;
     always_comb begin
-        next_state = state;
-        enable = 1'b0;
-
-        case (state)
-            SCAN_STATE: begin
-                if (col != 4'b0000) next_state = DEBOUNCE_PRESS_STATE;
-            end
-            
-            DEBOUNCE_PRESS_STATE: begin
-                if (col == 4'b0000) next_state = SCAN_STATE; // bounce
-                else if (debounce_count >= DEBOUNCE_TIME) next_state = TRIGGER_STATE;
-            end
-            
-            TRIGGER_STATE: begin
-                enable = 1'b1; // Assert single cycle enable
-                next_state = HOLD_STATE;
-            end
-            
-            HOLD_STATE: begin
-                // Wait until all keys are released to avoid multi-press
-                if (col == 4'b0000) next_state = DEBOUNCE_RELEASE_STATE;
-            end
-            
-            DEBOUNCE_RELEASE_STATE: begin
-                if (col != 4'b0000) next_state = HOLD_STATE; // Key re-bounced upon release
-                else if (debounce_count >= DEBOUNCE_TIME) next_state = SCAN_STATE;
-            end
+        case (col)
+            4'b0001, 4'b0010, 4'b0100, 4'b1000: press = 1'b1;
+            default: press = 1'b0;
         endcase
     end
 
-    // Output assignments based on current scan index
+    // first column detected for multiple presses
+    logic [3:0] first_col;
+    always_ff @(posedge clk) begin
+        if (~reset) begin
+            first_col <= 4'b0000;
+        end else if (tick && (state == s0 || state == s1 || state == s2 || state == s3)) begin
+            first_col <= col;
+        end
+    end
+    
+    // Check if the original button is still being held down
+    logic oneCol;
+    assign oneCol = (col & first_col) != 4'b0000;
+    
+    // Synchronous state transition on tick
+    always_ff @(posedge clk) begin
+        if (~reset) begin
+            state <= r0;
+        end else if (tick) begin
+            state <= next_state;
+        end
+    end
+    
+    // Next-state logic
+    always_comb begin
+        case(state)
+            // Scan Row 0
+            r0: if (press) next_state = p0; else next_state = r1;
+            p0: next_state = s0;
+            s0: next_state = e0;
+            e0: next_state = w0;
+            w0: if (oneCol) next_state = w0; else next_state = r0;
+                
+            // Scan Row 1
+            r1: if (press) next_state = p1; else next_state = r2;
+            p1: next_state = s1;
+            s1: next_state = e1;
+            e1: next_state = w1;
+            w1: if (oneCol) next_state = w1; else next_state = r1;
+                
+            // Scan Row 2
+            r2: if (press) next_state = p2; else next_state = r3;
+            p2: next_state = s2;
+            s2: next_state = e2;
+            e2: next_state = w2;
+            w2: if (oneCol) next_state = w2; else next_state = r2;
+    
+            // Scan Row 3
+            r3: if (press) next_state = p3; else next_state = r0;
+            p3: next_state = s3;
+            s3: next_state = e3;
+            e3: next_state = w3;
+            w3: if (oneCol) next_state = w3; else next_state = r3;
+            
+            default: next_state = r0;
+        endcase
+    end
+    
+    // FSM Output Logic
     always_comb begin
         row = 4'b1111;
-        row[scan_row] = 1'b0; // drive the current row low and leave the others floating so that it may be grounded
-
         active_row = 4'b0000;
-        active_row[scan_row] = 1'b1; // is passed onto the keypad_decoder module instead of inverted logic
-    end
 
+        if (state == r0 || state == p0 || state == s0 || state == e0 || state == w0) begin
+            row = 4'b1110; 
+            active_row = 4'b0001;
+        end else if (state == r1 || state == p1 || state == s1 || state == e1 || state == w1) begin
+            row = 4'b1101; 
+            active_row = 4'b0010;
+        end else if (state == r2 || state == p2 || state == s2 || state == e2 || state == w2) begin
+            row = 4'b1011; 
+            active_row = 4'b0100;
+        end else if (state == r3 || state == p3 || state == s3 || state == e3 || state == w3) begin
+            row = 4'b0111; 
+            active_row = 4'b1000;
+        end
+    end
+    
+    assign enable = (state == e0) | (state == e1) | (state == e2) | (state == e3); // enable active in these states
+    
 endmodule
